@@ -5,6 +5,7 @@ from bs4 import BeautifulSoup
 import streamlit as st
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
+import os
 from io import BytesIO
 
 st.set_page_config(page_title="Extração de Juízes - TJSP", layout="wide")
@@ -98,7 +99,6 @@ if df is not None:
     st.subheader("📊 Progresso da Extração")
     progress = st.progress(st.session_state.index / len(df))
     status_text = st.empty()
-    df_area = st.empty()
 
     if st.session_state.executando and st.session_state.index < len(df):
         i = st.session_state.index
@@ -112,13 +112,11 @@ if df is not None:
         st.session_state.index += 1
         progress.progress(st.session_state.index / len(df))
         status_text.text(f"✅ Processo {i + 1}/{len(df)} — {numero_mod}: {juiz}")
-        df_area.dataframe(df[df["Juiz"] != ""].reset_index(drop=True))
         time.sleep(1.5)
         st.experimental_rerun()
 
-    else:
-        # Mostra a tabela quando não está extraindo ou terminou
-        df_area.dataframe(df[df["Juiz"] != ""].reset_index(drop=True))
+    st.subheader("📋 Processos já extraídos")
+    st.dataframe(df[df["Juiz"] != ""].reset_index(drop=True))
 
     # Geração de relatórios PDF individuais
     if df["Juiz"].ne("").all():
