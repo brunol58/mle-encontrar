@@ -13,8 +13,9 @@ import time
 
 # In[21]:
 
+arquivo = st.file_uploader("Faça upload do arquivo relatorio.csv", type=["csv"])
 
-df = pd.read_csv('relatorio.csv', sep=';', encoding='utf-8', dtype={'Número do Processo': str})
+df = pd.read_csv(arquivo, sep=';', encoding='utf-8', dtype={'Número do Processo': str})
 df["Número do Processo"] = df["Número do Processo"].str.strip("\t")
 df["Número do Mandado"] = df["Número do Mandado"].str.strip("\t")
 df['Número do Processo Mod'] = df['Número do Processo'].str.replace('826', '', regex=False)
@@ -152,5 +153,6 @@ for juiz, grupo in df.groupby("Juiz"):
     doc.build(story)
 
     print(f"Relatório PDF gerado para: {juiz}")
+
 
 
