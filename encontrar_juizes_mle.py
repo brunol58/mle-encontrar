@@ -9,7 +9,7 @@ import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 import time
-
+import streamlit as st
 
 # In[21]:
 
@@ -153,6 +153,7 @@ for juiz, grupo in df.groupby("Juiz"):
     doc.build(story)
 
     print(f"Relatório PDF gerado para: {juiz}")
+
 
 
 
