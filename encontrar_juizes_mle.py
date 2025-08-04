@@ -1,39 +1,38 @@
-import streamlit as st
+import time
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup
-import time
-from io import BytesIO
+import streamlit as st
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
+import os
+from io import BytesIO
 
-st.set_page_config(page_title="Juízes MLE - TJSP", layout="wide")
+st.set_page_config(page_title="Extração de Juízes - TJSP", layout="wide")
 
-st.title("📄 Analisador de Juízes - Mandados (TJSP)")
-
-# Estado inicial
+# Sessão
 if "df" not in st.session_state:
     st.session_state.df = None
 if "index" not in st.session_state:
     st.session_state.index = 0
-if "juizes" not in st.session_state:
-    st.session_state.juizes = []
 if "executando" not in st.session_state:
     st.session_state.executando = False
+if "relatorios" not in st.session_state:
+    st.session_state.relatorios = {}
 
-# Upload
-uploaded_file = st.file_uploader("Faça upload do arquivo `relatorio.csv`", type="csv")
-if uploaded_file and st.session_state.df is None:
-    df = pd.read_csv(uploaded_file, sep=";", encoding="utf-8", dtype={"Número do Processo": str})
+st.title("🧑‍⚖️ Extração de Juízes - MLEs TJSP")
+
+# Upload CSV
+arquivo = st.file_uploader("📄 Faça upload do arquivo relatorio.csv", type=["csv"])
+if arquivo and st.session_state.df is None:
+    df = pd.read_csv(arquivo, sep=';', encoding='utf-8', dtype={'Número do Processo': str})
     df["Número do Processo"] = df["Número do Processo"].str.strip("\t")
     df["Número do Mandado"] = df["Número do Mandado"].str.strip("\t")
-    df["Número do Processo Mod"] = df["Número do Processo"].str.replace('826', '', regex=False)
+    df['Número do Processo Mod'] = df['Número do Processo'].str.replace('826', '', regex=False)
     df["Juiz"] = ""
     st.session_state.df = df
-    st.session_state.index = 0
-    st.session_state.juizes = []
 
-# Funções auxiliares
+# Funções
 BASE_URL = "https://esaj.tjsp.jus.br"
 
 def formatar_numero_cnj(numero):
@@ -60,12 +59,12 @@ def extrair_juiz(numero_mod):
         if resp.status_code != 200:
             return None, f"Erro HTTP {resp.status_code}"
         return BeautifulSoup(resp.text, "html.parser"), None
-
+    
     url = gerar_link(numero_mod)
     soup, erro = requisitar(url)
     if erro:
         return erro
-
+    
     proc_princ = soup.find("a", class_="processoPrinc")
     if proc_princ:
         href_princ = proc_princ.get("href")
@@ -75,45 +74,33 @@ def extrair_juiz(numero_mod):
         soup_princ, erro_princ = requisitar(url_princ)
         if erro_princ:
             return erro_princ
-
         juiz_princ = soup_princ.find("span", id="juizProcesso")
-        if juiz_princ:
-            return juiz_princ.get_text(strip=True)
-        else:
-            return "Juiz não encontrado"
+        return juiz_princ.get_text(strip=True) if juiz_princ else "Juiz não encontrado"
     else:
         juiz = soup.find("span", id="juizProcesso")
-        if juiz:
-            return juiz.get_text(strip=True)
-        else:
-            return "Juiz não encontrado"
+        return juiz.get_text(strip=True) if juiz else "Juiz não encontrado"
 
-# Controles
-col1, col2, col3 = st.columns(3)
-
+# Botões de controle
+col1, col2 = st.columns(2)
 with col1:
-    if st.button("▶️ Iniciar/Continuar Extração"):
+    if st.button("▶️ Iniciar Extração"):
         st.session_state.executando = True
-
 with col2:
-    if st.button("⏸ Pausar"):
-        st.session_state.executando = False
-
-with col3:
     if st.button("🔄 Resetar"):
         st.session_state.df = None
         st.session_state.index = 0
-        st.session_state.juizes = []
         st.session_state.executando = False
+        st.session_state.relatorios = {}
         st.experimental_rerun()
 
-# Extração
+# Execução por passo
 df = st.session_state.df
 if df is not None:
+    st.subheader("📊 Progresso da Extração")
     progress = st.progress(st.session_state.index / len(df))
     status_text = st.empty()
 
-    while st.session_state.executando and st.session_state.index < len(df):
+    if st.session_state.executando and st.session_state.index < len(df):
         i = st.session_state.index
         numero_mod = df.at[i, "Número do Processo Mod"]
         try:
@@ -123,58 +110,51 @@ if df is not None:
 
         df.at[i, "Juiz"] = juiz
         st.session_state.index += 1
-        status_text.text(f"Processo {i + 1}/{len(df)} — {numero_mod}: {juiz}")
         progress.progress(st.session_state.index / len(df))
+        status_text.text(f"✅ Processo {i + 1}/{len(df)} — {numero_mod}: {juiz}")
         time.sleep(1.5)
         st.experimental_rerun()
 
-    # Mostrar tabela de progresso
-    st.subheader("✅ Processos já executados")
-    st.dataframe(df[df["Juiz"] != ""])
+    st.subheader("📋 Processos já extraídos")
+    st.dataframe(df[df["Juiz"] != ""].reset_index(drop=True))
 
-    # Correção manual
-    st.subheader("📝 Corrigir juízes manualmente (opcional)")
-    for i, row in df[df["Juiz"] == "Juiz não encontrado"].iterrows():
-        juiz_manual = st.text_input(f"Processo {row['Número do Processo Mod']}", key=f"juiz_{i}")
-        if juiz_manual.strip():
-            df.at[i, "Juiz"] = juiz_manual.strip()
+    # Geração de relatórios PDF individuais
+    if df["Juiz"].ne("").all():
+        st.subheader("📥 Relatórios por Juiz")
+        styles = getSampleStyleSheet()
+        style_normal = styles["Normal"]
+        style_heading = styles["Heading1"]
+        style_subheading = styles["Heading2"]
 
-    # Geração individual de PDF
-    st.subheader("📥 Baixar relatórios individuais")
-    styles = getSampleStyleSheet()
-    style_normal = styles["Normal"]
-    style_heading = styles["Heading1"]
-    style_subheading = styles["Heading2"]
+        for juiz, grupo in df.groupby("Juiz"):
+            if juiz in st.session_state.relatorios:
+                pdf_bytes = st.session_state.relatorios[juiz]
+            else:
+                buffer = BytesIO()
+                doc = SimpleDocTemplate(buffer)
+                story = [Paragraph(f"Relatório - MLEs Aguardando Assinatura - Magistrado(a): {juiz}", style_heading), Spacer(1, 12)]
 
-    for juiz, grupo in df.groupby("Juiz"):
-        if juiz in ["Erro ou não encontrado", "Juiz não encontrado", ""]:
-            continue
+                for orgao, subgrupo in grupo.sort_values("Órgão/Vara").groupby("Órgão/Vara"):
+                    story.append(Paragraph(f"Vara: {orgao}", style_subheading))
+                    story.append(Spacer(1, 6))
+                    for _, row in subgrupo.iterrows():
+                        story.append(Paragraph(f"Processo: {row['Número do Processo Mod']}", style_normal))
+                        story.append(Paragraph(f"Jurisdicao: {row['Jurisdição']}", style_normal))
+                        story.append(Paragraph(f"Situação do Mandado: {row['Situação do Mandado']}", style_normal))
+                        story.append(Paragraph(f"Valor do Mandado: R$ {row['Valor do Mandado']}", style_normal))
+                        story.append(Paragraph(f"Usuário da Ação: {row['Usuário da Ação']}", style_normal))
+                        story.append(Paragraph(f"Data da Ação: {row['Data da Ação']}", style_normal))
+                        story.append(Spacer(1, 12))
+                        story.append(Paragraph("-" * 50, style_normal))
+                        story.append(Spacer(1, 12))
 
-        buffer = BytesIO()
-        doc = SimpleDocTemplate(buffer)
-        story = [Paragraph(f"Relatório - MLEs Aguardando Assinatura - Magistrado(a): {juiz}", style_heading), Spacer(1, 12)]
+                doc.build(story)
+                pdf_bytes = buffer.getvalue()
+                st.session_state.relatorios[juiz] = pdf_bytes
 
-        for orgao, subgrupo in grupo.sort_values("Órgão/Vara").groupby("Órgão/Vara"):
-            story.append(Paragraph(f"Vara: {orgao}", style_subheading))
-            story.append(Spacer(1, 6))
-
-            for _, row in subgrupo.iterrows():
-                story.append(Paragraph(f"Processo: {row['Número do Processo Mod']}", style_normal))
-                story.append(Paragraph(f"Jurisdicao: {row['Jurisdição']}", style_normal))
-                story.append(Paragraph(f"Situação do Mandado: {row['Situação do Mandado']}", style_normal))
-                story.append(Paragraph(f"Valor do Mandado: R$ {row['Valor do Mandado']}", style_normal))
-                story.append(Paragraph(f"Usuário da Ação: {row['Usuário da Ação']}", style_normal))
-                story.append(Paragraph(f"Data da Ação: {row['Data da Ação']}", style_normal))
-                story.append(Spacer(1, 12))
-                story.append(Paragraph("-" * 50, style_normal))
-                story.append(Spacer(1, 12))
-
-        doc.build(story)
-        buffer.seek(0)
-
-        st.download_button(
-            label=f"📄 Baixar PDF do juiz: {juiz}",
-            data=buffer,
-            file_name=f"{juiz.replace('/', '_').replace(' ', '_')}.pdf",
-            mime="application/pdf"
-        )
+            st.download_button(
+                label=f"📥 Baixar PDF: {juiz}",
+                data=pdf_bytes,
+                file_name=f"{juiz.replace('/', '_').replace(' ', '_')}.pdf",
+                mime="application/pdf"
+            )
