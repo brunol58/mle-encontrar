@@ -11,6 +11,8 @@ from datetime import datetime
 # Título do app
 st.title("Relatório de Juízes - Mandados de Levantamento(TJSP)")
 
+st.warning("🚧 Esta aplicação está em fase de testes. Desenvolvida por Bruno Ferreira da Silva.")
+
 # Inicializar variáveis de sessão
 if 'df_final' not in st.session_state:
     st.session_state.df_final = None
@@ -206,54 +208,87 @@ if arquivo:
     campos_selecionados = sum(selecao_campos.values())
     mostrar_separadores = campos_selecionados > 1
 
-    # Gerar e disponibilizar PDFs individualmente
-    st.write(f"### 📄 Baixar relatórios de MLEs pendentes até {st.session_state.data_relatorio}")
-
+    from docx import Document
+    from docx.shared import Pt
+    
+    # Gerar e disponibilizar relatórios individualmente
+    st.write(f"### 📄 Baixar relatórios de MLEs pendentes até {st.session_state.data_relatorio} (PDF e Word)")
+    
     styles = getSampleStyleSheet()
     style_normal = styles["Normal"]
     style_heading = styles["Heading1"]
     style_subheading = styles["Heading2"]
-
+    
     for juiz, grupo in df.groupby("Juiz"):
         if juiz in ["Erro ou não encontrado", "Juiz não encontrado"]:
             continue
-
-        buffer = BytesIO()
-        doc = SimpleDocTemplate(buffer)
+    
+        # ---------- PDF ----------
+        pdf_buffer = BytesIO()
+        doc_pdf = SimpleDocTemplate(pdf_buffer)
         story = [Paragraph(f"Relatório de MLEs pendentes até {st.session_state.data_relatorio} - Magistrado(a): {juiz}", style_heading), Spacer(1, 12)]
-
+    
+        # ---------- Word ----------
+        docx_doc = Document()
+        docx_doc.add_heading(f"Relatório de MLEs pendentes até {st.session_state.data_relatorio}", level=1)
+        docx_doc.add_heading(f"Magistrado(a): {juiz}", level=2)
+    
         for orgao, subgrupo in grupo.sort_values("Órgão/Vara").groupby("Órgão/Vara"):
             story.append(Paragraph(f"Vara: {orgao}", style_subheading))
             story.append(Spacer(1, 6))
-
+            docx_doc.add_heading(f"Vara: {orgao}", level=3)
+    
             for _, row in subgrupo.iterrows():
-                # Adiciona os campos selecionados ao relatório
                 if selecao_campos["Número do Processo"]:
                     story.append(Paragraph(f"{row['Número do Processo']}", style_normal))
+                    docx_doc.add_paragraph(f"{row['Número do Processo']}")
                 if selecao_campos["Jurisdição"]:
                     story.append(Paragraph(f"Jurisdição: {row['Jurisdição']}", style_normal))
+                    docx_doc.add_paragraph(f"Jurisdição: {row['Jurisdição']}")
                 if selecao_campos["Situação do Mandado"]:
                     story.append(Paragraph(f"Situação do Mandado: {row['Situação do Mandado']}", style_normal))
+                    docx_doc.add_paragraph(f"Situação do Mandado: {row['Situação do Mandado']}")
                 if selecao_campos["Valor do Mandado"]:
                     story.append(Paragraph(f"Valor do Mandado: R$ {row['Valor do Mandado']}", style_normal))
+                    docx_doc.add_paragraph(f"Valor do Mandado: R$ {row['Valor do Mandado']}")
                 if selecao_campos["Usuário da Ação"]:
                     story.append(Paragraph(f"Usuário da Ação: {row['Usuário da Ação']}", style_normal))
+                    docx_doc.add_paragraph(f"Usuário da Ação: {row['Usuário da Ação']}")
                 if selecao_campos["Data da Ação"]:
                     story.append(Paragraph(f"Data da Ação: {row['Data da Ação']}", style_normal))
-                
-                # Adiciona espaço e separador se necessário
+                    docx_doc.add_paragraph(f"Data da Ação: {row['Data da Ação']}")
+    
                 if mostrar_separadores:
                     story.append(Spacer(1, 12))
                     story.append(Paragraph("-" * 50, style_normal))
                     story.append(Spacer(1, 12))
-
-        doc.build(story)
-        buffer.seek(0)
-        nome_arquivo = f"Relatório_MLEs_{juiz.replace('/', '_').replace(' ', '_')}_{st.session_state.data_relatorio.replace('/', '-')}.pdf"
+                    docx_doc.add_paragraph("-" * 50)
+    
+        # Salvar PDF
+        doc_pdf.build(story)
+        pdf_buffer.seek(0)
+    
+        nome_base = f"Relatorio_MLEs_{juiz.replace('/', '_').replace(' ', '_')}_{st.session_state.data_relatorio.replace('/', '-')}"
+        nome_pdf = f"{nome_base}.pdf"
+    
         st.download_button(
-            label=f"📥 Baixar relatório de {juiz}",
-            data=buffer,
-            file_name=nome_arquivo,
+            label=f"📥 Baixar PDF - {juiz}",
+            data=pdf_buffer,
+            file_name=nome_pdf,
             mime="application/pdf"
         )
+    
+        # Salvar Word
+        docx_buffer = BytesIO()
+        docx_doc.save(docx_buffer)
+        docx_buffer.seek(0)
+    
+        nome_docx = f"{nome_base}.docx"
+        st.download_button(
+            label=f"📥 Baixar Word - {juiz}",
+            data=docx_buffer,
+            file_name=nome_docx,
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
+    
 
