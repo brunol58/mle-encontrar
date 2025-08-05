@@ -133,12 +133,28 @@ if arquivo:
 
     # Permite edição manual
     st.write("### Corrija juízes não encontrados (se desejar):")
-    for i, row in df[df["Juiz"] == "Juiz não encontrado"].iterrows():
-        juiz_manual = st.text_input(f"Informe o juiz para o processo {row['Número do Processo Mod']}:", key=i)
-        if juiz_manual.strip():
-            df.at[i, "Juiz"] = juiz_manual.strip()
-            st.session_state.df_final.at[i, "Juiz"] = juiz_manual.strip()
-            st.experimental_rerun()  # Atualiza a interface após edição
+    
+    # Criar um formulário para as edições
+    with st.form(key='edicao_juizes'):
+        juizes_editados = {}
+        for i, row in df[df["Juiz"] == "Juiz não encontrado"].iterrows():
+            juiz_manual = st.text_input(
+                f"Informe o juiz para o processo {row['Número do Processo Mod']}:", 
+                key=f"juiz_edit_{i}"
+            )
+            juizes_editados[i] = juiz_manual.strip() if juiz_manual.strip() else None
+        
+        submit_button = st.form_submit_button("Aplicar Correções")
+
+    # Aplicar as correções quando o formulário for submetido
+    if submit_button:
+        for i, juiz in juizes_editados.items():
+            if juiz:
+                df.at[i, "Juiz"] = juiz
+                st.session_state.df_final.at[i, "Juiz"] = juiz
+        st.success("Correções aplicadas com sucesso!")
+        # Atualiza a exibição do DataFrame
+        st.dataframe(df[["Número do Processo", "Órgão/Vara", "Juiz"]])
 
     # Gerar e disponibilizar PDFs individualmente
     st.write("### 📄 Baixar relatórios individuais por juiz")
@@ -180,3 +196,4 @@ if arquivo:
             file_name=nome_arquivo,
             mime="application/pdf"
         )
+
