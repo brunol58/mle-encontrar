@@ -38,18 +38,19 @@ if arquivo:
         )
 
     def extrair_juiz(numero_mod):
-        headers = {"User-Agent": "Mozilla/5.0"}
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/115.0.0.0 Safari/537.36"
+        )
+    }
 
         def requisitar(url):
-            try:
-                resp = requests.get(url, headers=headers, timeout=10)
-                if resp.status_code != 200:
-                    return None, f"Erro HTTP {resp.status_code}"
-                return BeautifulSoup(resp.text, "html.parser"), None
-            except requests.exceptions.Timeout:
-                return None, "⏰ Timeout na requisição"
-            except requests.exceptions.RequestException as e:
-                return None, f"Erro na requisição: {e}"
+            resp = requests.get(url, headers=headers)
+            if resp.status_code != 200:
+                return None, f"Erro HTTP {resp.status_code}"
+            return BeautifulSoup(resp.text, "html.parser"), None
 
         url = gerar_link(numero_mod)
         soup, erro = requisitar(url)
@@ -78,40 +79,34 @@ if arquivo:
             else:
                 return "Juiz não encontrado"
 
-    # Iniciar extração
     st.info("⏳ Iniciando extração de juízes...")
     resultados_juiz = []
     progress = st.progress(0)
-    status = st.empty()
 
     for i, processo in enumerate(df["Número do Processo Mod"]):
         try:
-            status.text(f"🔍 Buscando juiz para processo: {processo}")
             juiz = extrair_juiz(processo)
-            if not juiz:
-                juiz = "Erro: retorno vazio"
             resultados_juiz.append(juiz)
-        except Exception as e:
-            resultados_juiz.append(f"Erro: {str(e)}")
+        except Exception:
+            resultados_juiz.append("Erro ou não encontrado")
         progress.progress((i + 1) / len(df))
-        time.sleep(2.5)  # Reduz chance de bloqueio por excesso de requisições
+        time.sleep(1.5)  # evitar bloqueios
 
     df["Juiz"] = resultados_juiz
     st.success("✅ Extração finalizada!")
-    status.text("")
 
-    # Mostrar resultados extraídos
-    st.write("### 📋 Processos e Juízes encontrados:")
+    # Exibir tabela com os resultados
+    st.write("### 📊 Processos e juízes extraídos:")
     st.dataframe(df[["Número do Processo Mod", "Juiz", "Órgão/Vara"]])
 
-    # Permitir correção manual
-    st.write("### ✍️ Corrija juízes não encontrados (opcional):")
+    # Permite edição manual
+    st.write("### Corrija juízes não encontrados (se desejar):")
     for i, row in df[df["Juiz"] == "Juiz não encontrado"].iterrows():
         juiz_manual = st.text_input(f"Informe o juiz para o processo {row['Número do Processo Mod']}:", key=i)
         if juiz_manual.strip():
             df.at[i, "Juiz"] = juiz_manual.strip()
 
-    # Gerar e exibir PDF individual por juiz
+    # Gerar e disponibilizar PDFs individualmente
     st.write("### 📄 Baixar relatórios individuais por juiz")
 
     styles = getSampleStyleSheet()
