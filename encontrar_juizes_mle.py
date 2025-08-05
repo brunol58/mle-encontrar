@@ -91,7 +91,8 @@ if arquivo:
                 else:
                     return "Juiz não encontrado"
 
-        st.info("⏳ Extração em andamento...")
+        status_extracao = st.empty()
+        status_extracao.info("⏳ Extração de nomes dos juízes em andamento...")
         
         # Cria placeholders para os elementos dinâmicos
         progress_bar = st.progress(0)
@@ -136,10 +137,10 @@ if arquivo:
         
         # Atualiza a tabela final
         table_placeholder.dataframe(display_df)
-        st.success("✅ Extração concluída!")
+        status_extracao.success("✅ Extração de nomes dos juízes concluída!")
     else:
         df = st.session_state.df_final.copy()
-        st.success("✅ Extração já concluída anteriormente!")
+        st.success("✅ Extração de nomes dos juízes já concluída anteriormente!")
         st.dataframe(df[["Número do Processo", "Órgão/Vara", "Juiz"]])
 
     # Permite edição manual
@@ -178,8 +179,7 @@ if arquivo:
         "Situação do Mandado": "Situação do Mandado",
         "Valor do Mandado": "Valor do Mandado",
         "Usuário da Ação": "Usuário da Ação",
-        "Data da Ação": "Data da Ação",
-        "Barras separadoras": "separador"
+        "Data da Ação": "Data da Ação"
     }
     
     # Criar checkboxes para cada campo
@@ -196,10 +196,12 @@ if arquivo:
         selecao_campos["Usuário da Ação"] = st.checkbox("Usuário da Ação", value=False)
         selecao_campos["Data da Ação"] = st.checkbox("Data da Ação", value=False)
     
-    selecao_campos["Barras separadoras"] = st.checkbox("Barras separadoras", value=False)
+    # Barras separadoras serão automaticamente ativadas se mais de um campo estiver selecionado
+    campos_selecionados = sum(selecao_campos.values())
+    mostrar_separadores = campos_selecionados > 1
 
     # Gerar e disponibilizar PDFs individualmente
-    st.write(f"### 📄 Baixar relatórios (Processos até {st.session_state.data_relatorio})")
+    st.write(f"### 📄 Baixar relatórios de MLEs pendentes até {st.session_state.data_relatorio}")
 
     styles = getSampleStyleSheet()
     style_normal = styles["Normal"]
@@ -212,7 +214,7 @@ if arquivo:
 
         buffer = BytesIO()
         doc = SimpleDocTemplate(buffer)
-        story = [Paragraph(f"Relatório de Processos até {st.session_state.data_relatorio} - Magistrado(a): {juiz}", style_heading), Spacer(1, 12)]
+        story = [Paragraph(f"Relatório de MLEs pendentes até {st.session_state.data_relatorio} - Magistrado(a): {juiz}", style_heading), Spacer(1, 12)]
 
         for orgao, subgrupo in grupo.sort_values("Órgão/Vara").groupby("Órgão/Vara"):
             story.append(Paragraph(f"Vara: {orgao}", style_subheading))
@@ -233,15 +235,15 @@ if arquivo:
                 if selecao_campos["Data da Ação"]:
                     story.append(Paragraph(f"Data da Ação: {row['Data da Ação']}", style_normal))
                 
-                # Adiciona espaço e separador se selecionado
-                if selecao_campos["Barras separadoras"]:
+                # Adiciona espaço e separador se necessário
+                if mostrar_separadores:
                     story.append(Spacer(1, 12))
                     story.append(Paragraph("-" * 50, style_normal))
                     story.append(Spacer(1, 12))
 
         doc.build(story)
         buffer.seek(0)
-        nome_arquivo = f"Relatório_{juiz.replace('/', '_').replace(' ', '_')}_{st.session_state.data_relatorio.replace('/', '-')}.pdf"
+        nome_arquivo = f"Relatório_MLEs_{juiz.replace('/', '_').replace(' ', '_')}_{st.session_state.data_relatorio.replace('/', '-')}.pdf"
         st.download_button(
             label=f"📥 Baixar relatório de {juiz}",
             data=buffer,
