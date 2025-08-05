@@ -6,6 +6,7 @@ import streamlit as st
 from io import BytesIO
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
+from datetime import datetime
 
 # Título do app
 st.title("Relatório de Juízes - Mandados de Levantamento(TJSP)")
@@ -15,9 +16,11 @@ if 'df_final' not in st.session_state:
     st.session_state.df_final = None
 if 'extracao_concluida' not in st.session_state:
     st.session_state.extracao_concluida = False
+if 'data_relatorio' not in st.session_state:
+    st.session_state.data_relatorio = datetime.now().strftime('%d/%m/%Y')
 
 # Upload do CSV
-arquivo = st.file_uploader("📄 Faça upload do relatorio gerado diretamento no Portal de Custas", type=["csv"])
+arquivo = st.file_uploader("📄 Faça upload do relatório gerado diretamente no Portal de Custas", type=["csv"])
 
 if arquivo:
     if not st.session_state.extracao_concluida:
@@ -25,6 +28,14 @@ if arquivo:
         df["Número do Processo"] = df["Número do Processo"].str.strip("\t")
         df["Número do Mandado"] = df["Número do Mandado"].str.strip("\t")
         df['Número do Processo Mod'] = df['Número do Processo'].str.replace('826', '', regex=False)
+
+        # Encontrar a data mais recente de ação
+        try:
+            df['Data da Ação'] = pd.to_datetime(df['Data da Ação'], format='%d/%m/%Y')
+            data_mais_recente = df['Data da Ação'].max()
+            st.session_state.data_relatorio = data_mais_recente.strftime('%d/%m/%Y')
+        except Exception as e:
+            st.session_state.data_relatorio = datetime.now().strftime('%d/%m/%Y')
 
         BASE_URL = "https://esaj.tjsp.jus.br"
 
@@ -80,7 +91,7 @@ if arquivo:
                 else:
                     return "Juiz não encontrado"
 
-        st.info("⏳ Iniciando extração de juízes...")
+        st.info("⏳ Extração em andamento...")
         
         # Cria placeholders para os elementos dinâmicos
         progress_bar = st.progress(0)
@@ -125,7 +136,7 @@ if arquivo:
         
         # Atualiza a tabela final
         table_placeholder.dataframe(display_df)
-        st.success("✅ Extração finalizada!")
+        st.success("✅ Extração concluída!")
     else:
         df = st.session_state.df_final.copy()
         st.success("✅ Extração já concluída anteriormente!")
@@ -139,7 +150,7 @@ if arquivo:
         juizes_editados = {}
         for i, row in df[df["Juiz"] == "Juiz não encontrado"].iterrows():
             juiz_manual = st.text_input(
-                f"Informe o juiz para o processo {row['Número do Processo Mod']}:", 
+                f"Informe o juiz para o processo {row['Número do Processo']}:", 
                 key=f"juiz_edit_{i}"
             )
             juizes_editados[i] = juiz_manual.strip() if juiz_manual.strip() else None
@@ -162,7 +173,7 @@ if arquivo:
     
     # Opções de campos para incluir no relatório
     campos_disponiveis = {
-        "Número do Processo": "Número do Processo Mod",
+        "Número do Processo": "Número do Processo",
         "Jurisdição": "Jurisdição",
         "Situação do Mandado": "Situação do Mandado",
         "Valor do Mandado": "Valor do Mandado",
@@ -171,14 +182,24 @@ if arquivo:
         "Barras separadoras": "separador"
     }
     
-    campos_selecionados = st.multiselect(
-        "Selecione os campos para o relatório:",
-        options=list(campos_disponiveis.keys()),
-        default=list(campos_disponiveis.keys())
-    )
+    # Criar checkboxes para cada campo
+    selecao_campos = {}
+    col1, col2, col3 = st.columns(3)
     
+    with col1:
+        selecao_campos["Número do Processo"] = st.checkbox("Número do Processo", value=True)
+        selecao_campos["Jurisdição"] = st.checkbox("Jurisdição", value=False)
+    with col2:
+        selecao_campos["Situação do Mandado"] = st.checkbox("Situação do Mandado", value=False)
+        selecao_campos["Valor do Mandado"] = st.checkbox("Valor do Mandado", value=False)
+    with col3:
+        selecao_campos["Usuário da Ação"] = st.checkbox("Usuário da Ação", value=False)
+        selecao_campos["Data da Ação"] = st.checkbox("Data da Ação", value=False)
+    
+    selecao_campos["Barras separadoras"] = st.checkbox("Barras separadoras", value=False)
+
     # Gerar e disponibilizar PDFs individualmente
-    st.write("### 📄 Baixar relatórios individuais por juiz")
+    st.write(f"### 📄 Baixar relatórios (Processos até {st.session_state.data_relatorio})")
 
     styles = getSampleStyleSheet()
     style_normal = styles["Normal"]
@@ -191,7 +212,7 @@ if arquivo:
 
         buffer = BytesIO()
         doc = SimpleDocTemplate(buffer)
-        story = [Paragraph(f"Relatório - MLEs Aguardando Assinatura - Magistrado(a): {juiz}", style_heading), Spacer(1, 12)]
+        story = [Paragraph(f"Relatório de Processos até {st.session_state.data_relatorio} - Magistrado(a): {juiz}", style_heading), Spacer(1, 12)]
 
         for orgao, subgrupo in grupo.sort_values("Órgão/Vara").groupby("Órgão/Vara"):
             story.append(Paragraph(f"Vara: {orgao}", style_subheading))
@@ -199,28 +220,28 @@ if arquivo:
 
             for _, row in subgrupo.iterrows():
                 # Adiciona os campos selecionados ao relatório
-                if "Número do Processo" in campos_selecionados:
-                    story.append(Paragraph(f"Processo: {row['Número do Processo Mod']}", style_normal))
-                if "Jurisdição" in campos_selecionados:
+                if selecao_campos["Número do Processo"]:
+                    story.append(Paragraph(f"Processo: {row['Número do Processo']}", style_normal))
+                if selecao_campos["Jurisdição"]:
                     story.append(Paragraph(f"Jurisdição: {row['Jurisdição']}", style_normal))
-                if "Situação do Mandado" in campos_selecionados:
+                if selecao_campos["Situação do Mandado"]:
                     story.append(Paragraph(f"Situação do Mandado: {row['Situação do Mandado']}", style_normal))
-                if "Valor do Mandado" in campos_selecionados:
+                if selecao_campos["Valor do Mandado"]:
                     story.append(Paragraph(f"Valor do Mandado: R$ {row['Valor do Mandado']}", style_normal))
-                if "Usuário da Ação" in campos_selecionados:
+                if selecao_campos["Usuário da Ação"]:
                     story.append(Paragraph(f"Usuário da Ação: {row['Usuário da Ação']}", style_normal))
-                if "Data da Ação" in campos_selecionados:
+                if selecao_campos["Data da Ação"]:
                     story.append(Paragraph(f"Data da Ação: {row['Data da Ação']}", style_normal))
                 
                 # Adiciona espaço e separador se selecionado
-                if "Barras separadoras" in campos_selecionados:
+                if selecao_campos["Barras separadoras"]:
                     story.append(Spacer(1, 12))
                     story.append(Paragraph("-" * 50, style_normal))
                     story.append(Spacer(1, 12))
 
         doc.build(story)
         buffer.seek(0)
-        nome_arquivo = f"{juiz.replace('/', '_').replace(' ', '_')}.pdf"
+        nome_arquivo = f"Relatório_{juiz.replace('/', '_').replace(' ', '_')}_{st.session_state.data_relatorio.replace('/', '-')}.pdf"
         st.download_button(
             label=f"📥 Baixar relatório de {juiz}",
             data=buffer,
