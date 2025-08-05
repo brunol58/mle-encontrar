@@ -8,7 +8,7 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
 
 # Título do app
-st.title("Relatório de Juízes - Mandados (TJSP)")
+st.title("Relatório de Juízes - Mandados de Levantamento(TJSP)")
 
 # Inicializar variáveis de sessão
 if 'df_final' not in st.session_state:
@@ -17,7 +17,7 @@ if 'extracao_concluida' not in st.session_state:
     st.session_state.extracao_concluida = False
 
 # Upload do CSV
-arquivo = st.file_uploader("📄 Faça upload do arquivo relatorio.csv", type=["csv"])
+arquivo = st.file_uploader("📄 Faça upload do relatorio gerado diretamento no Portal de Custas", type=["csv"])
 
 if arquivo:
     if not st.session_state.extracao_concluida:
@@ -132,7 +132,7 @@ if arquivo:
         st.dataframe(df[["Número do Processo", "Órgão/Vara", "Juiz"]])
 
     # Permite edição manual
-    st.write("### Corrija juízes não encontrados (se desejar):")
+    st.write("### Insira manualmente os juízes não encontrados (para que constem nos relatórios):")
     
     # Criar um formulário para as edições
     with st.form(key='edicao_juizes'):
@@ -156,6 +156,27 @@ if arquivo:
         # Atualiza a exibição do DataFrame
         st.dataframe(df[["Número do Processo", "Órgão/Vara", "Juiz"]])
 
+    # Configuração dos campos do relatório
+    st.write("### ⚙️ Configuração do Relatório")
+    st.write("Selecione quais informações devem aparecer no relatório:")
+    
+    # Opções de campos para incluir no relatório
+    campos_disponiveis = {
+        "Número do Processo": "Número do Processo Mod",
+        "Jurisdição": "Jurisdição",
+        "Situação do Mandado": "Situação do Mandado",
+        "Valor do Mandado": "Valor do Mandado",
+        "Usuário da Ação": "Usuário da Ação",
+        "Data da Ação": "Data da Ação",
+        "Barras separadoras": "separador"
+    }
+    
+    campos_selecionados = st.multiselect(
+        "Selecione os campos para o relatório:",
+        options=list(campos_disponiveis.keys()),
+        default=list(campos_disponiveis.keys())
+    )
+    
     # Gerar e disponibilizar PDFs individualmente
     st.write("### 📄 Baixar relatórios individuais por juiz")
 
@@ -177,15 +198,25 @@ if arquivo:
             story.append(Spacer(1, 6))
 
             for _, row in subgrupo.iterrows():
-                story.append(Paragraph(f"Processo: {row['Número do Processo Mod']}", style_normal))
-                story.append(Paragraph(f"Jurisdicao: {row['Jurisdição']}", style_normal))
-                story.append(Paragraph(f"Situação do Mandado: {row['Situação do Mandado']}", style_normal))
-                story.append(Paragraph(f"Valor do Mandado: R$ {row['Valor do Mandado']}", style_normal))
-                story.append(Paragraph(f"Usuário da Ação: {row['Usuário da Ação']}", style_normal))
-                story.append(Paragraph(f"Data da Ação: {row['Data da Ação']}", style_normal))
-                story.append(Spacer(1, 12))
-                story.append(Paragraph("-" * 50, style_normal))
-                story.append(Spacer(1, 12))
+                # Adiciona os campos selecionados ao relatório
+                if "Número do Processo" in campos_selecionados:
+                    story.append(Paragraph(f"Processo: {row['Número do Processo Mod']}", style_normal))
+                if "Jurisdição" in campos_selecionados:
+                    story.append(Paragraph(f"Jurisdição: {row['Jurisdição']}", style_normal))
+                if "Situação do Mandado" in campos_selecionados:
+                    story.append(Paragraph(f"Situação do Mandado: {row['Situação do Mandado']}", style_normal))
+                if "Valor do Mandado" in campos_selecionados:
+                    story.append(Paragraph(f"Valor do Mandado: R$ {row['Valor do Mandado']}", style_normal))
+                if "Usuário da Ação" in campos_selecionados:
+                    story.append(Paragraph(f"Usuário da Ação: {row['Usuário da Ação']}", style_normal))
+                if "Data da Ação" in campos_selecionados:
+                    story.append(Paragraph(f"Data da Ação: {row['Data da Ação']}", style_normal))
+                
+                # Adiciona espaço e separador se selecionado
+                if "Barras separadoras" in campos_selecionados:
+                    story.append(Spacer(1, 12))
+                    story.append(Paragraph("-" * 50, style_normal))
+                    story.append(Spacer(1, 12))
 
         doc.build(story)
         buffer.seek(0)
@@ -196,4 +227,3 @@ if arquivo:
             file_name=nome_arquivo,
             mime="application/pdf"
         )
-
