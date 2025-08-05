@@ -43,8 +43,8 @@ if arquivo:
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
             "AppleWebKit/537.36 (KHTML, like Gecko) "
             "Chrome/115.0.0.0 Safari/537.36"
-        )
-    }
+                    )
+             }
 
         def requisitar(url):
             resp = requests.get(url, headers=headers)
@@ -146,3 +146,4 @@ if arquivo:
             file_name=nome_arquivo,
             mime="application/pdf"
         )
+
