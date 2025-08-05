@@ -11,16 +11,6 @@ from datetime import datetime
 # Título do app
 st.title("Relatório de Juízes - Mandados de Levantamento(TJSP)")
 
-# Mensagem de aviso sobre a versão
-st.markdown(
-    """
-    > ⚠️ Esta é uma aplicação **experimental** ainda em fase de testes, desenvolvida por **Bruno Ferreira da Silva**.
-    >
-    > Erros podem ocorrer durante o uso. Para sugestões ou correções, entre em contato com o autor.
-    """,
-    unsafe_allow_html=True
-)
-
 # Inicializar variáveis de sessão
 if 'df_final' not in st.session_state:
     st.session_state.df_final = None
@@ -260,4 +250,5 @@ if arquivo:
             file_name=nome_arquivo,
             mime="application/pdf"
         )
+
 
