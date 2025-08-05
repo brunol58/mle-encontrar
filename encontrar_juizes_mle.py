@@ -229,7 +229,7 @@ if arquivo:
             for _, row in subgrupo.iterrows():
                 # Adiciona os campos selecionados ao relatório
                 if selecao_campos["Número do Processo"]:
-                    story.append(Paragraph(f"Processo: {row['Número do Processo']}", style_normal))
+                    story.append(Paragraph(f"{row['Número do Processo']}", style_normal))
                 if selecao_campos["Jurisdição"]:
                     story.append(Paragraph(f"Jurisdição: {row['Jurisdição']}", style_normal))
                 if selecao_campos["Situação do Mandado"]:
@@ -256,3 +256,4 @@ if arquivo:
             file_name=nome_arquivo,
             mime="application/pdf"
         )
+
