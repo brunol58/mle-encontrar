@@ -154,4 +154,3 @@ for juiz, grupo in df.groupby("Juiz"):
     doc.build(story)
 
     print(f"Relatório PDF gerado para: {juiz}")
-
