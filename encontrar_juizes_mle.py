@@ -7,10 +7,10 @@ from io import BytesIO
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
 from datetime import datetime
+from docx import Document
 
 # Título do app
 st.title("Relatório de Juízes - Mandados de Levantamento(TJSP)")
-
 st.warning("🚧 Esta aplicação está em fase de testes. Desenvolvida por Bruno Ferreira da Silva.")
 
 # Inicializar variáveis de sessão
@@ -31,12 +31,12 @@ if arquivo:
         df["Número do Mandado"] = df["Número do Mandado"].str.strip("\t")
         df['Número do Processo Mod'] = df['Número do Processo'].str.replace('826', '', regex=False)
 
-        # Encontrar a data mais recente de ação
+        # Data mais recente
         try:
             df['Data da Ação'] = pd.to_datetime(df['Data da Ação'], format='%d/%m/%Y')
             data_mais_recente = df['Data da Ação'].max()
             st.session_state.data_relatorio = data_mais_recente.strftime('%d/%m/%Y')
-        except Exception as e:
+        except:
             st.session_state.data_relatorio = datetime.now().strftime('%d/%m/%Y')
 
         BASE_URL = "https://esaj.tjsp.jus.br"
@@ -60,17 +60,30 @@ if arquivo:
 
         def extrair_juiz(numero_mod):
             headers = {
-                            "User-Agent": (
-                                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                                "Chrome/115.0.0.0 Safari/537.36"
-                            )
-                        }
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/115.0.0.0 Safari/537.36"
+                )
+            }
+
             def requisitar(url):
-                resp = requests.get(url, headers=headers)
-                if resp.status_code != 200:
-                    return None, f"Erro HTTP {resp.status_code}"
-                return BeautifulSoup(resp.text, "html.parser"), None
+                for tentativa in range(3):
+                    try:
+                        resp = requests.get(url, headers=headers, timeout=10)
+                        if resp.status_code != 200:
+                            time.sleep(2)
+                            continue
+                        if "captcha" in resp.text.lower():
+                            return None, "Página bloqueada por captcha"
+                        return BeautifulSoup(resp.text, "html.parser"), None
+                    except requests.Timeout:
+                        print(f"⏳ Timeout {tentativa+1} para {url}")
+                        time.sleep(2)
+                    except Exception as e:
+                        print(f"⚠️ Erro {tentativa+1} para {url}: {e}")
+                        time.sleep(2)
+                return None, "Falha após múltiplas tentativas"
 
             url = gerar_link(numero_mod)
             soup, erro = requisitar(url)
@@ -86,36 +99,24 @@ if arquivo:
                 soup_princ, erro_princ = requisitar(url_princ)
                 if erro_princ:
                     return erro_princ
-
                 juiz_princ = soup_princ.find("span", id="juizProcesso")
-                if juiz_princ:
-                    return juiz_princ.get_text(strip=True)
-                else:
-                    return "Juiz não encontrado"
+                return juiz_princ.get_text(strip=True) if juiz_princ else "Juiz não encontrado"
             else:
                 juiz = soup.find("span", id="juizProcesso")
-                if juiz:
-                    return juiz.get_text(strip=True)
-                else:
-                    return "Juiz não encontrado"
+                return juiz.get_text(strip=True) if juiz else "Juiz não encontrado"
 
         status_extracao = st.empty()
         status_extracao.info("⏳ Extração de nomes dos juízes em andamento...")
-        
-        # Cria placeholders para os elementos dinâmicos
         progress_bar = st.progress(0)
         status_text = st.empty()
         table_placeholder = st.empty()
-        
-        # DataFrame para exibição em tempo real
+
         display_df = df[["Número do Processo", "Órgão/Vara"]].copy()
         display_df["Juiz"] = ["⏳ Extraindo..." for _ in range(len(df))]
-        
-        # Exibe a tabela inicial
         table_placeholder.dataframe(display_df)
-        
+
         resultados_juiz = []
-        
+
         for i, (index, row) in enumerate(df.iterrows()):
             try:
                 juiz = extrair_juiz(row["Número do Processo Mod"])
@@ -123,64 +124,53 @@ if arquivo:
             except Exception:
                 juiz = "Erro ou não encontrado"
                 resultados_juiz.append(juiz)
-            
-            # Atualiza o DataFrame de exibição
+
             display_df.at[index, "Juiz"] = juiz
-            
-            # Atualiza a interface
             progress = (i + 1) / len(df)
             progress_bar.progress(progress)
             status_text.text(f"Processando {i + 1} de {len(df)} | Último juiz: {juiz}")
-            
-            # Atualiza a tabela a cada 5 registros ou no último
+
             if i % 5 == 0 or i == len(df) - 1:
                 table_placeholder.dataframe(display_df)
-                time.sleep(0.1)  # Pequena pausa para a interface atualizar
-            
-            time.sleep(1.5)  # evitar bloqueios
+                st.session_state.df_final = df.copy()
+                st.session_state.df_final["Juiz"] = resultados_juiz
+                time.sleep(0.1)
+
+            time.sleep(1.5)
 
         df["Juiz"] = resultados_juiz
         st.session_state.df_final = df.copy()
         st.session_state.extracao_concluida = True
-        
-        # Atualiza a tabela final
         table_placeholder.dataframe(display_df)
-        status_extracao.success("✅ Extração de nomes dos juízes concluída!")
+        status_extracao.success("✅ Extração concluída!")
+
     else:
         df = st.session_state.df_final.copy()
-        st.success("✅ Extração de nomes dos juízes já concluída anteriormente!")
+        st.success("✅ Extração já concluída anteriormente!")
         st.dataframe(df[["Número do Processo", "Órgão/Vara", "Juiz"]])
 
-    # Permite edição manual
-    st.write("### Insira manualmente os juízes não encontrados (para que constem nos relatórios):")
-    
-    # Criar um formulário para as edições
+    # Edição manual
+    st.write("### Insira manualmente os juízes não encontrados:")
     with st.form(key='edicao_juizes'):
         juizes_editados = {}
         for i, row in df[df["Juiz"] == "Juiz não encontrado"].iterrows():
             juiz_manual = st.text_input(
-                f"Informe o juiz para o processo {row['Número do Processo']}:", 
+                f"Informe o juiz para o processo {row['Número do Processo']}:",
                 key=f"juiz_edit_{i}"
             )
             juizes_editados[i] = juiz_manual.strip() if juiz_manual.strip() else None
-        
         submit_button = st.form_submit_button("Aplicar Correções")
 
-    # Aplicar as correções quando o formulário for submetido
     if submit_button:
         for i, juiz in juizes_editados.items():
             if juiz:
                 df.at[i, "Juiz"] = juiz
                 st.session_state.df_final.at[i, "Juiz"] = juiz
         st.success("Correções aplicadas com sucesso!")
-        # Atualiza a exibição do DataFrame
         st.dataframe(df[["Número do Processo", "Órgão/Vara", "Juiz"]])
 
-    # Configuração dos campos do relatório
+    # Configuração do relatório
     st.write("### ⚙️ Configuração do Relatório")
-    st.write("Selecione quais informações devem aparecer no relatório:")
-    
-    # Opções de campos para incluir no relatório
     campos_disponiveis = {
         "Número do Processo": "Número do Processo",
         "Jurisdição": "Jurisdição",
@@ -189,11 +179,9 @@ if arquivo:
         "Usuário da Ação": "Usuário da Ação",
         "Data da Ação": "Data da Ação"
     }
-    
-    # Criar checkboxes para cada campo
+
     selecao_campos = {}
     col1, col2, col3 = st.columns(3)
-    
     with col1:
         selecao_campos["Número do Processo"] = st.checkbox("Número do Processo", value=True)
         selecao_campos["Jurisdição"] = st.checkbox("Jurisdição", value=False)
@@ -203,41 +191,34 @@ if arquivo:
     with col3:
         selecao_campos["Usuário da Ação"] = st.checkbox("Usuário da Ação", value=False)
         selecao_campos["Data da Ação"] = st.checkbox("Data da Ação", value=False)
-    
-    # Barras separadoras serão automaticamente ativadas se mais de um campo estiver selecionado
-    campos_selecionados = sum(selecao_campos.values())
-    mostrar_separadores = campos_selecionados > 1
 
-    from docx import Document
-    from docx.shared import Pt
-    
-    # Gerar e disponibilizar relatórios individualmente
-    st.write(f"### 📄 Baixar relatórios de MLEs pendentes até {st.session_state.data_relatorio} (PDF e Word)")
-    
+    mostrar_separadores = sum(selecao_campos.values()) > 1
+
     styles = getSampleStyleSheet()
     style_normal = styles["Normal"]
     style_heading = styles["Heading1"]
     style_subheading = styles["Heading2"]
-    
+
+    st.write(f"### 📄 Baixar relatórios até {st.session_state.data_relatorio} (PDF e Word)")
     for juiz, grupo in df.groupby("Juiz"):
         if juiz in ["Erro ou não encontrado", "Juiz não encontrado"]:
             continue
-    
-        # ---------- PDF ----------
+
+        # PDF
         pdf_buffer = BytesIO()
         doc_pdf = SimpleDocTemplate(pdf_buffer)
-        story = [Paragraph(f"Relatório de MLEs pendentes até {st.session_state.data_relatorio} - Magistrado(a): {juiz}", style_heading), Spacer(1, 12)]
-    
-        # ---------- Word ----------
+        story = [Paragraph(f"Relatório até {st.session_state.data_relatorio} - Magistrado(a): {juiz}", style_heading), Spacer(1, 12)]
+
+        # Word
         docx_doc = Document()
-        docx_doc.add_heading(f"Relatório de MLEs pendentes até {st.session_state.data_relatorio}", level=1)
+        docx_doc.add_heading(f"Relatório até {st.session_state.data_relatorio}", level=1)
         docx_doc.add_heading(f"Magistrado(a): {juiz}", level=2)
-    
+
         for orgao, subgrupo in grupo.sort_values("Órgão/Vara").groupby("Órgão/Vara"):
             story.append(Paragraph(f"Vara: {orgao}", style_subheading))
             story.append(Spacer(1, 6))
             docx_doc.add_heading(f"Vara: {orgao}", level=3)
-    
+
             for _, row in subgrupo.iterrows():
                 if selecao_campos["Número do Processo"]:
                     story.append(Paragraph(f"{row['Número do Processo']}", style_normal))
@@ -257,38 +238,19 @@ if arquivo:
                 if selecao_campos["Data da Ação"]:
                     story.append(Paragraph(f"Data da Ação: {row['Data da Ação']}", style_normal))
                     docx_doc.add_paragraph(f"Data da Ação: {row['Data da Ação']}")
-    
+
                 if mostrar_separadores:
                     story.append(Spacer(1, 12))
                     story.append(Paragraph("-" * 50, style_normal))
                     story.append(Spacer(1, 12))
                     docx_doc.add_paragraph("-" * 50)
-    
-        # Salvar PDF
+
         doc_pdf.build(story)
         pdf_buffer.seek(0)
-    
         nome_base = f"Relatorio_MLEs_{juiz.replace('/', '_').replace(' ', '_')}_{st.session_state.data_relatorio.replace('/', '-')}"
-        nome_pdf = f"{nome_base}.pdf"
-    
-        st.download_button(
-            label=f"📥 Baixar PDF - {juiz}",
-            data=pdf_buffer,
-            file_name=nome_pdf,
-            mime="application/pdf"
-        )
-    
-        # Salvar Word
+        st.download_button(f"📥 Baixar PDF - {juiz}", data=pdf_buffer, file_name=f"{nome_base}.pdf", mime="application/pdf")
+
         docx_buffer = BytesIO()
         docx_doc.save(docx_buffer)
         docx_buffer.seek(0)
-    
-        nome_docx = f"{nome_base}.docx"
-        st.download_button(
-            label=f"📥 Baixar Word - {juiz}",
-            data=docx_buffer,
-            file_name=nome_docx,
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        )
-    
-
+        st.download_button(f"📥 Baixar Word - {juiz}", data=docx_buffer, file_name=f"{nome_base}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
