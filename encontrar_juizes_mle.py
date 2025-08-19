@@ -1,30 +1,19 @@
-#!/usr/bin/env python
-# coding: utf-8
-
-# In[19]:
-
-
 import time
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup
-import time
+import os
+import streamlit as st
+from io import BytesIO
+from docx import Document
+from docx.shared import Pt
+from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet
 
-get_ipython().system('pip install reportlab')
-
-
-# In[21]:
-
-
-df = pd.read_csv('relatorio.csv', sep=';', encoding='utf-8', dtype={'Número do Processo': str})
-df["Número do Processo"] = df["Número do Processo"].str.strip("\t")
-df["Número do Mandado"] = df["Número do Mandado"].str.strip("\t")
-df['Número do Processo Mod'] = df['Número do Processo'].str.replace('826', '', regex=False)
-df
-
-
-# In[35]:
-
+# ==============================
+# Funções auxiliares
+# ==============================
 
 BASE_URL = "https://esaj.tjsp.jus.br"
 
@@ -82,75 +71,87 @@ def extrair_juiz(numero_mod):
         else:
             return "Juiz não encontrado"
 
-# Loop substituindo o Selenium
-resultados_juiz = []
+# ==============================
+# Aplicativo Streamlit
+# ==============================
 
-for processo in df["Número do Processo Mod"]:
-    try:
-        juiz = extrair_juiz(processo)
-        print(f"Processo {processo}: Juiz = {juiz}")
-        resultados_juiz.append(juiz)
-        time.sleep(2)  # evitar bloqueio
-    except Exception as e:
-        resultados_juiz.append("Erro ou não encontrado")
-        print(f"Erro no processo {processo}: {e}")
+st.title("📑 Relatório de Juízes - MLE (TJSP)")
+st.warning("⚠️ Esta aplicação está em fase de testes e foi implementada por **Bruno Ferreira da Silva**.")
 
-# Adiciona a nova coluna ao DataFrame
-df["Juiz"] = resultados_juiz
+uploaded_file = st.file_uploader("Carregue o arquivo CSV com os processos", type="csv")
 
+if uploaded_file:
+    df = pd.read_csv(uploaded_file, sep=";", encoding="utf-8", dtype={'Número do Processo': str})
+    df["Número do Processo"] = df["Número do Processo"].str.strip("\t")
+    df["Número do Mandado"] = df["Número do Mandado"].str.strip("\t")
+    df['Número do Processo Mod'] = df['Número do Processo'].str.replace('826', '', regex=False)
 
-# In[37]:
+    st.subheader("📋 Pré-visualização dos dados")
+    st.dataframe(df.head())
 
+    if st.button("🔍 Extrair Juízes"):
+        resultados_juiz = []
+        progress = st.progress(0)
+        for i, processo in enumerate(df["Número do Processo Mod"]):
+            try:
+                juiz = extrair_juiz(processo)
+                resultados_juiz.append(juiz)
+            except Exception:
+                juiz = "Erro ou não encontrado"
+                resultados_juiz.append(juiz)
+            progress.progress((i+1)/len(df))
+            time.sleep(2)  # evita bloqueio
+        
+        df["Juiz"] = resultados_juiz
+        st.success("✅ Extração concluída!")
+        st.dataframe(df)
 
-for i, row in df[df["Juiz"] == "Juiz não encontrado"].iterrows():
-    print(f"\nNúmero do processo: {row['Número do Processo']}")
-    juiz_manual = input("Digite o nome do juiz (ou pressione Enter para pular): ").strip()
-    if juiz_manual:
-        df.at[i, "Juiz"] = juiz_manual
+        # Corrigir manualmente juízes não encontrados
+        st.subheader("✏️ Correção Manual dos Juízes")
+        for i, row in df[df["Juiz"] == "Juiz não encontrado"].iterrows():
+            juiz_manual = st.text_input(f"Digite o juiz para o processo {row['Número do Processo']}", "")
+            if juiz_manual:
+                df.at[i, "Juiz"] = juiz_manual
 
+        # Geração dos relatórios
+        st.subheader("📂 Gerar Relatórios")
+        os.makedirs("relatorios_juizes_word", exist_ok=True)
 
-# In[53]:
+        buffer_word = BytesIO()
 
+        # Gera relatórios Word agrupados por juiz e vara
+        for juiz, grupo in df.groupby("Juiz"):
+            if juiz in ["Erro ou não encontrado", None]:
+                continue
 
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-from reportlab.lib.styles import getSampleStyleSheet
-import os
+            doc = Document()
+            
+            # Estilo
+            style = doc.styles['Normal']
+            font = style.font
+            font.name = 'Arial'
+            font.size = Pt(12)
+            
+            # Título
+            title = doc.add_paragraph(f"MLEs para assinatura - {juiz}")
+            title.style = doc.styles['Heading 1']
+            title.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+            doc.add_paragraph()
 
-# Cria a pasta
-os.makedirs("relatorios_juizes_pdf", exist_ok=True)
+            # Agrupar por Vara
+            for vara, processos in grupo.sort_values("Órgão/Vara").groupby("Órgão/Vara"):
+                subtitle = doc.add_paragraph(f"Vara: {vara}")
+                subtitle.style = doc.styles['Heading 2']
+                for _, row in processos.iterrows():
+                    doc.add_paragraph(row['Número do Processo'].strip())
+                doc.add_paragraph()
+            
+            doc.save(buffer_word)
 
-# Estilos para PDF
-styles = getSampleStyleSheet()
-style_normal = styles["Normal"]
-style_heading = styles["Heading1"]
-style_subheading = styles["Heading2"]
-
-# Gera um PDF para cada juiz
-for juiz, grupo in df.groupby("Juiz"):
-    if juiz == "Erro ou não encontrado":
-        continue
-
-    filename = f"relatorios_juizes_pdf/{juiz.replace('/', '_').replace(' ', '_')}.pdf"
-    doc = SimpleDocTemplate(filename)
-
-    story = [Paragraph(f"Relatório - MLEs Aguardando Assinatura - Magistrado(a): {juiz}", style_heading), Spacer(1, 12)]
-
-    # Agrupa por Órgão/Vara dentro de cada juiz
-    for orgao, subgrupo in grupo.sort_values("Órgão/Vara").groupby("Órgão/Vara"):
-        story.append(Paragraph(f"Vara: {orgao}", style_subheading))
-        story.append(Spacer(1, 6))
-
-        for _, row in subgrupo.iterrows():
-            story.append(Paragraph(f"Processo: {row['Número do Processo Mod']}", style_normal))
-            story.append(Paragraph(f"Jurisdicao: {row['Jurisdição']}", style_normal))
-            story.append(Paragraph(f"Situação do Mandado: {row['Situação do Mandado']}", style_normal))
-            story.append(Paragraph(f"Valor do Mandado: R$ {row['Valor do Mandado']}", style_normal))
-            story.append(Paragraph(f"Usuário da Ação: {row['Usuário da Ação']}", style_normal))
-            story.append(Paragraph(f"Data da Ação: {row['Data da Ação']}", style_normal))
-            story.append(Spacer(1, 12))
-            story.append(Paragraph("-" * 50, style_normal))
-            story.append(Spacer(1, 12))
-
-    doc.build(story)
-
-    print(f"Relatório PDF gerado para: {juiz}")
+        buffer_word.seek(0)
+        st.download_button(
+            label="📥 Baixar Relatório em Word",
+            data=buffer_word,
+            file_name="relatorio_juizes.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
