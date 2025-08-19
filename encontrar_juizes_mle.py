@@ -106,24 +106,21 @@ if uploaded_file:
         st.success("✅ Extração concluída!")
         st.dataframe(df)
 
-        # Corrigir manualmente juízes não encontrados
+        # Correção manual dos juízes não encontrados
         st.subheader("✏️ Correção Manual dos Juízes")
         for i, row in df[df["Juiz"] == "Juiz não encontrado"].iterrows():
             juiz_manual = st.text_input(f"Digite o juiz para o processo {row['Número do Processo']}", "")
             if juiz_manual:
                 df.at[i, "Juiz"] = juiz_manual
 
-        # Geração dos relatórios
-        st.subheader("📂 Gerar Relatórios")
-        os.makedirs("relatorios_juizes_word", exist_ok=True)
+        # Geração dos relatórios Word (um por juiz)
+        st.subheader("📂 Relatórios Word (download individual)")
 
-        buffer_word = BytesIO()
-
-        # Gera relatórios Word agrupados por juiz e vara
         for juiz, grupo in df.groupby("Juiz"):
             if juiz in ["Erro ou não encontrado", None]:
                 continue
 
+            # Cria documento Word
             doc = Document()
             
             # Estilo
@@ -145,13 +142,16 @@ if uploaded_file:
                 for _, row in processos.iterrows():
                     doc.add_paragraph(row['Número do Processo'].strip())
                 doc.add_paragraph()
-            
-            doc.save(buffer_word)
 
-        buffer_word.seek(0)
-        st.download_button(
-            label="📥 Baixar Relatório em Word",
-            data=buffer_word,
-            file_name="relatorio_juizes.docx",
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        )
+            # Salvar em buffer de memória
+            buffer = BytesIO()
+            doc.save(buffer)
+            buffer.seek(0)
+
+            # Botão de download individual
+            st.download_button(
+                label=f"📥 Baixar Word - {juiz}",
+                data=buffer,
+                file_name=f"{juiz.replace('/', '_').replace(' ', '_')}.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            )
