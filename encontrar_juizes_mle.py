@@ -79,17 +79,30 @@ if uploaded_file is not None:
     # Botão para extrair juízes
     # =========================
     if st.button("Extrair juízes"):
-        with st.spinner("Extraindo juízes..."):
-            resultados_juiz = []
-            for processo in df["Número do Processo Mod"]:
-                juiz = extrair_juiz(processo)
-                resultados_juiz.append(juiz)
-                time.sleep(1)  # evitar bloqueio
-            df["Juiz"] = resultados_juiz
-            st.session_state.df = df
-        st.success("Extração concluída!")
-        st.dataframe(df[["Número do Processo", "Juiz"]])
-
+        if "Número do Processo Mod" not in df.columns:
+            st.error("Coluna 'Número do Processo Mod' não encontrada.")
+        else:
+            with st.spinner("Extraindo juízes..."):
+                resultados_juiz = []
+                progresso_bar = st.progress(0)
+                status_text = st.empty()
+                
+                total = len(df)
+                for idx, processo in enumerate(df["Número do Processo Mod"], start=1):
+                    juiz = extrair_juiz(processo)
+                    resultados_juiz.append(juiz)
+                    
+                    # Atualiza barra de progresso e status
+                    progresso_bar.progress(idx / total)
+                    status_text.text(f"Extraindo processo {idx}/{total}: {processo} → {juiz}")
+                    
+                    time.sleep(1)  # para reduzir risco de bloqueio
+                
+                df["Juiz"] = resultados_juiz
+                st.session_state.df = df
+                
+            st.success("Extração concluída!")
+            st.dataframe(df[["Número do Processo", "Juiz"]])
     # =========================
     # Preenchimento manual
     # =========================
@@ -135,3 +148,4 @@ if uploaded_file is not None:
                 doc.save(word_filename)
             st.success("Relatórios Word gerados em relatorios_juizes_word/")
             st.info("Os arquivos estão disponíveis na pasta relatorios_juizes_word no ambiente do Streamlit Cloud.")
+
