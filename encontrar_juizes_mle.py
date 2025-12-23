@@ -1,157 +1,125 @@
-import time
+import streamlit as st
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup
-import os
-import streamlit as st
-from io import BytesIO
 from docx import Document
 from docx.shared import Pt
 from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-from reportlab.lib.styles import getSampleStyleSheet
+import time
+import os
 
-# ==============================
-# Funções auxiliares
-# ==============================
+st.set_page_config(page_title="Relatórios de MLEs", layout="wide")
 
-BASE_URL = "https://esaj.tjsp.jus.br"
+st.title("Extração de Juízes e Geração de Relatórios Word")
+st.info("Aplicação em fase de testes - Desenvolvido por Bruno Ferreira da Silva")
 
-def formatar_numero_cnj(numero):
-    return f"{numero[:7]}-{numero[7:9]}.{numero[9:13]}.8.26.{numero[13:]}"
+# =========================
+# Upload do CSV
+# =========================
+uploaded_file = st.file_uploader("Envie a planilha CSV", type=["csv"])
 
-def gerar_link(numero_mod):
-    numero_formatado = formatar_numero_cnj(numero_mod)
-    foro = numero_mod[-4:]
-    return (
-        f"https://esaj.tjsp.jus.br/cpopg/search.do?"
-        f"conversationId=&cbPesquisa=NUMPROC"
-        f"&numeroDigitoAnoUnificado={numero_mod}"
-        f"&foroNumeroUnificado={foro}"
-        f"&dadosConsulta.valorConsultaNuUnificado={numero_formatado}"
-        f"&dadosConsulta.valorConsultaNuUnificado=UNIFICADO"
-        f"&dadosConsulta.valorConsulta="
-        f"&dadosConsulta.tipoNuProcesso=UNIFICADO"
-    )
-
-def extrair_juiz(numero_mod):
-    headers = {"User-Agent": "Mozilla/5.0"}
-    
-    def requisitar(url):
-        resp = requests.get(url, headers=headers)
-        if resp.status_code != 200:
-            return None, f"Erro HTTP {resp.status_code}"
-        return BeautifulSoup(resp.text, "html.parser"), None
-    
-    url = gerar_link(numero_mod)
-    soup, erro = requisitar(url)
-    if erro:
-        return erro
-    
-    proc_princ = soup.find("a", class_="processoPrinc")
-    if proc_princ:
-        href_princ = proc_princ.get("href")
-        if not href_princ:
-            return "Link do processo principal não encontrado"
-        url_princ = BASE_URL + href_princ
-        
-        soup_princ, erro_princ = requisitar(url_princ)
-        if erro_princ:
-            return erro_princ
-        
-        juiz_princ = soup_princ.find("span", id="juizProcesso")
-        if juiz_princ:
-            return juiz_princ.get_text(strip=True)
-        else:
-            return "Juiz não encontrado"
-    else:
-        juiz = soup.find("span", id="juizProcesso")
-        if juiz:
-            return juiz.get_text(strip=True)
-        else:
-            return "Juiz não encontrado"
-
-# ==============================
-# Aplicativo Streamlit
-# ==============================
-
-st.title("📑 Relatório de Juízes - MLE (TJSP)")
-st.warning("⚠️ Esta aplicação está em fase de testes e foi implementada por **Bruno Ferreira da Silva**.")
-
-uploaded_file = st.file_uploader("Carregue o arquivo CSV com os processos", type="csv")
-
-if uploaded_file:
-    df = pd.read_csv(uploaded_file, sep=";", encoding="utf-8", dtype={'Número do Processo': str})
+if uploaded_file is not None:
+    df = pd.read_csv(uploaded_file, sep=';', encoding='utf-8', dtype={'Número do Processo': str})
     df["Número do Processo"] = df["Número do Processo"].str.strip("\t")
     df["Número do Mandado"] = df["Número do Mandado"].str.strip("\t")
     df['Número do Processo Mod'] = df['Número do Processo'].str.replace('826', '', regex=False)
 
-    st.subheader("📋 Pré-visualização dos dados")
+    st.subheader("Preview da Planilha")
     st.dataframe(df.head())
 
-    if st.button("🔍 Extrair Juízes"):
-        resultados_juiz = []
-        progress = st.progress(0)
-        for i, processo in enumerate(df["Número do Processo Mod"]):
-            try:
+    BASE_URL = "https://esaj.tjsp.jus.br"
+
+    def formatar_numero_cnj(numero):
+        return f"{numero[:7]}-{numero[7:9]}.{numero[9:13]}.8.26.{numero[13:]}"
+
+    def gerar_link(numero_mod):
+        numero_formatado = formatar_numero_cnj(numero_mod)
+        foro = numero_mod[-4:]
+        return (
+            f"https://esaj.tjsp.jus.br/cpopg/search.do?"
+            f"conversationId=&cbPesquisa=NUMPROC"
+            f"&numeroDigitoAnoUnificado={numero_mod}"
+            f"&foroNumeroUnificado={foro}"
+            f"&dadosConsulta.valorConsultaNuUnificado={numero_formatado}"
+            f"&dadosConsulta.valorConsultaNuUnificado=UNIFICADO"
+            f"&dadosConsulta.valorConsulta="
+            f"&dadosConsulta.tipoNuProcesso=UNIFICADO"
+        )
+
+    def extrair_juiz(numero_mod):
+        headers = {"User-Agent": "Mozilla/5.0"}
+        try:
+            resp = requests.get(gerar_link(numero_mod), headers=headers, timeout=10)
+            if resp.status_code != 200:
+                return f"Erro HTTP {resp.status_code}"
+            soup = BeautifulSoup(resp.text, "html.parser")
+            proc_princ = soup.find("a", class_="processoPrinc")
+            if proc_princ:
+                href_princ = proc_princ.get("href")
+                if not href_princ:
+                    return "Link do processo principal não encontrado"
+                resp2 = requests.get(BASE_URL + href_princ, headers=headers, timeout=10)
+                soup2 = BeautifulSoup(resp2.text, "html.parser")
+                juiz_princ = soup2.find("span", id="juizProcesso")
+                return juiz_princ.get_text(strip=True) if juiz_princ else "Juiz não encontrado"
+            else:
+                juiz = soup.find("span", id="juizProcesso")
+                return juiz.get_text(strip=True) if juiz else "Juiz não encontrado"
+        except:
+            return "Erro ou não encontrado"
+
+    # =========================
+    # Extração de juízes
+    # =========================
+    if st.button("Extrair juízes"):
+        with st.spinner("Extraindo juízes..."):
+            resultados_juiz = []
+            for processo in df["Número do Processo Mod"]:
                 juiz = extrair_juiz(processo)
                 resultados_juiz.append(juiz)
-            except Exception:
-                juiz = "Erro ou não encontrado"
-                resultados_juiz.append(juiz)
-            progress.progress((i+1)/len(df))
-            time.sleep(2)  # evita bloqueio
-        
-        df["Juiz"] = resultados_juiz
-        st.success("✅ Extração concluída!")
-        st.dataframe(df)
+                time.sleep(1)  # reduzir risco de bloqueio
+            df["Juiz"] = resultados_juiz
+        st.success("Extração concluída!")
+        st.dataframe(df[["Número do Processo", "Juiz"]])
 
-        # Correção manual dos juízes não encontrados
-        st.subheader("✏️ Correção Manual dos Juízes")
-        for i, row in df[df["Juiz"] == "Juiz não encontrado"].iterrows():
-            juiz_manual = st.text_input(f"Digite o juiz para o processo {row['Número do Processo']}", "")
+    # =========================
+    # Preenchimento manual
+    # =========================
+    juizes_nao_encontrados = df[df["Juiz"] == "Juiz não encontrado"]
+    if not juizes_nao_encontrados.empty:
+        st.warning("Alguns juízes não foram encontrados. Complete manualmente:")
+        for i, row in juizes_nao_encontrados.iterrows():
+            juiz_manual = st.text_input(f"Número do processo: {row['Número do Processo']}", "")
             if juiz_manual:
                 df.at[i, "Juiz"] = juiz_manual
 
-        # Geração dos relatórios Word (um por juiz)
-        st.subheader("📂 Relatórios Word (download individual)")
-
+    # =========================
+    # Geração de Word
+    # =========================
+    if st.button("Gerar relatórios Word"):
+        os.makedirs("relatorios_juizes_word", exist_ok=True)
         for juiz, grupo in df.groupby("Juiz"):
-            if juiz in ["Erro ou não encontrado", None]:
+            if juiz == "Erro ou não encontrado":
                 continue
-
-            # Cria documento Word
+            word_filename = f"relatorios_juizes_word/{juiz.replace('/', '_').replace(' ', '_')}.docx"
             doc = Document()
-            
-            # Estilo
             style = doc.styles['Normal']
             font = style.font
             font.name = 'Arial'
             font.size = Pt(12)
-            
-            # Título
+
             title = doc.add_paragraph(f"MLEs para assinatura - {juiz}")
             title.style = doc.styles['Heading 1']
             title.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
             doc.add_paragraph()
 
-            # Agrupar por Vara
             for vara, processos in grupo.sort_values("Órgão/Vara").groupby("Órgão/Vara"):
                 subtitle = doc.add_paragraph(f"Vara: {vara}")
                 subtitle.style = doc.styles['Heading 2']
                 for _, row in processos.iterrows():
                     doc.add_paragraph(row['Número do Processo'].strip())
                 doc.add_paragraph()
+            doc.save(word_filename)
+        st.success("Relatórios Word gerados em relatorios_juizes_word/")
 
-            # Salvar em buffer de memória
-            buffer = BytesIO()
-            doc.save(buffer)
-            buffer.seek(0)
-
-            # Botão de download individual
-            st.download_button(
-                label=f"📥 Baixar Word - {juiz}",
-                data=buffer,
-                file_name=f"{juiz.replace('/', '_').replace(' ', '_')}.docx",
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            )
+        st.download_button("Baixar todos os relatórios em ZIP", data=None)  # opcional para melhorar
