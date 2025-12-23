@@ -19,16 +19,23 @@ st.info("Aplicação em fase de testes - Desenvolvido por Bruno Ferreira da Silv
 uploaded_file = st.file_uploader("Envie a planilha CSV", type=["csv"])
 
 if uploaded_file is not None:
-    df = pd.read_csv(uploaded_file, sep=';', encoding='utf-8', dtype={'Número do Processo': str})
-    df["Número do Processo"] = df["Número do Processo"].str.strip("\t")
-    df["Número do Mandado"] = df["Número do Mandado"].str.strip("\t")
-    df['Número do Processo Mod'] = df['Número do Processo'].str.replace('826', '', regex=False)
+    if "df" not in st.session_state:
+        df = pd.read_csv(uploaded_file, sep=';', encoding='utf-8', dtype={'Número do Processo': str})
+        df["Número do Processo"] = df["Número do Processo"].str.strip("\t")
+        df["Número do Mandado"] = df["Número do Mandado"].str.strip("\t")
+        df['Número do Processo Mod'] = df['Número do Processo'].str.replace('826', '', regex=False)
+        st.session_state.df = df
+    else:
+        df = st.session_state.df
 
     st.subheader("Preview da Planilha")
     st.dataframe(df.head())
 
     BASE_URL = "https://esaj.tjsp.jus.br"
 
+    # =========================
+    # Funções de extração
+    # =========================
     def formatar_numero_cnj(numero):
         return f"{numero[:7]}-{numero[7:9]}.{numero[9:13]}.8.26.{numero[13:]}"
 
@@ -69,7 +76,7 @@ if uploaded_file is not None:
             return "Erro ou não encontrado"
 
     # =========================
-    # Extração de juízes
+    # Botão para extrair juízes
     # =========================
     if st.button("Extrair juízes"):
         with st.spinner("Extraindo juízes..."):
@@ -77,49 +84,54 @@ if uploaded_file is not None:
             for processo in df["Número do Processo Mod"]:
                 juiz = extrair_juiz(processo)
                 resultados_juiz.append(juiz)
-                time.sleep(1)  # reduzir risco de bloqueio
+                time.sleep(1)  # evitar bloqueio
             df["Juiz"] = resultados_juiz
+            st.session_state.df = df
         st.success("Extração concluída!")
         st.dataframe(df[["Número do Processo", "Juiz"]])
 
     # =========================
     # Preenchimento manual
     # =========================
-    juizes_nao_encontrados = df[df["Juiz"] == "Juiz não encontrado"]
-    if not juizes_nao_encontrados.empty:
-        st.warning("Alguns juízes não foram encontrados. Complete manualmente:")
-        for i, row in juizes_nao_encontrados.iterrows():
-            juiz_manual = st.text_input(f"Número do processo: {row['Número do Processo']}", "")
-            if juiz_manual:
-                df.at[i, "Juiz"] = juiz_manual
+    if "Juiz" in df.columns:
+        juizes_nao_encontrados = df[df["Juiz"] == "Juiz não encontrado"]
+        if not juizes_nao_encontrados.empty:
+            st.warning("Alguns juízes não foram encontrados. Complete manualmente:")
+            for i, row in juizes_nao_encontrados.iterrows():
+                juiz_manual = st.text_input(f"Número do processo: {row['Número do Processo']}", "")
+                if juiz_manual:
+                    df.at[i, "Juiz"] = juiz_manual
+            st.session_state.df = df
 
     # =========================
-    # Geração de Word
+    # Geração de relatórios Word
     # =========================
     if st.button("Gerar relatórios Word"):
-        os.makedirs("relatorios_juizes_word", exist_ok=True)
-        for juiz, grupo in df.groupby("Juiz"):
-            if juiz == "Erro ou não encontrado":
-                continue
-            word_filename = f"relatorios_juizes_word/{juiz.replace('/', '_').replace(' ', '_')}.docx"
-            doc = Document()
-            style = doc.styles['Normal']
-            font = style.font
-            font.name = 'Arial'
-            font.size = Pt(12)
+        if "Juiz" not in df.columns:
+            st.error("Extraia os juízes antes de gerar os relatórios.")
+        else:
+            os.makedirs("relatorios_juizes_word", exist_ok=True)
+            for juiz, grupo in df.groupby("Juiz"):
+                if juiz == "Erro ou não encontrado":
+                    continue
+                word_filename = f"relatorios_juizes_word/{juiz.replace('/', '_').replace(' ', '_')}.docx"
+                doc = Document()
+                style = doc.styles['Normal']
+                font = style.font
+                font.name = 'Arial'
+                font.size = Pt(12)
 
-            title = doc.add_paragraph(f"MLEs para assinatura - {juiz}")
-            title.style = doc.styles['Heading 1']
-            title.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
-            doc.add_paragraph()
-
-            for vara, processos in grupo.sort_values("Órgão/Vara").groupby("Órgão/Vara"):
-                subtitle = doc.add_paragraph(f"Vara: {vara}")
-                subtitle.style = doc.styles['Heading 2']
-                for _, row in processos.iterrows():
-                    doc.add_paragraph(row['Número do Processo'].strip())
+                title = doc.add_paragraph(f"MLEs para assinatura - {juiz}")
+                title.style = doc.styles['Heading 1']
+                title.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
                 doc.add_paragraph()
-            doc.save(word_filename)
-        st.success("Relatórios Word gerados em relatorios_juizes_word/")
 
-        st.download_button("Baixar todos os relatórios em ZIP", data=None)  # opcional para melhorar
+                for vara, processos in grupo.sort_values("Órgão/Vara").groupby("Órgão/Vara"):
+                    subtitle = doc.add_paragraph(f"Vara: {vara}")
+                    subtitle.style = doc.styles['Heading 2']
+                    for _, row in processos.iterrows():
+                        doc.add_paragraph(row['Número do Processo'].strip())
+                    doc.add_paragraph()
+                doc.save(word_filename)
+            st.success("Relatórios Word gerados em relatorios_juizes_word/")
+            st.info("Os arquivos estão disponíveis na pasta relatorios_juizes_word no ambiente do Streamlit Cloud.")
